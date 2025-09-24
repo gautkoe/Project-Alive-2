@@ -52,67 +52,236 @@ interface SectorConfig {
   ratiosBenchmarks: Record<string, number>;
 }
 
+const DEFAULT_USER_SETTINGS: UserSettings = {
+  name: 'Jean Dupont',
+  email: 'jean.dupont@cabinet-expertise.fr',
+  company: 'Cabinet Expertise & Conseil',
+  role: 'Expert-Comptable',
+  sector: 'multi',
+  timezone: 'Europe/Paris',
+  language: 'fr'
+};
+
+const DEFAULT_SYSTEM_SETTINGS: SystemSettings = {
+  autoSave: true,
+  notifications: true,
+  emailReports: false,
+  dataRetention: 36,
+  securityLevel: 'high',
+  maskSensitiveData: true
+};
+
+const DEFAULT_SECTOR_CONFIGS: SectorConfig[] = [
+  {
+    id: 'btp',
+    name: 'BTP & Construction',
+    enabled: true,
+    kpis: ['Avancement', 'Retenues garantie', 'Sous-traitance'],
+    ratiosBenchmarks: { ebitdaMargin: 8.5, currentRatio: 1.2 }
+  },
+  {
+    id: 'retail',
+    name: 'Commerce & Distribution',
+    enabled: false,
+    kpis: ['Ticket moyen', 'Rotation stock', 'Prime cost'],
+    ratiosBenchmarks: { ebitdaMargin: 12.0, currentRatio: 1.5 }
+  },
+  {
+    id: 'saas',
+    name: 'SaaS & Tech',
+    enabled: false,
+    kpis: ['MRR', 'ARR', 'Churn rate', 'CAC/LTV'],
+    ratiosBenchmarks: { ebitdaMargin: 25.0, currentRatio: 2.0 }
+  }
+];
+
+const SECURITY_LEVELS: SystemSettings['securityLevel'][] = ['standard', 'high', 'maximum'];
+
+function createDefaultUserSettings(): UserSettings {
+  return { ...DEFAULT_USER_SETTINGS };
+}
+
+function createDefaultSystemSettings(): SystemSettings {
+  return { ...DEFAULT_SYSTEM_SETTINGS };
+}
+
+function cloneSectorConfig(config: SectorConfig): SectorConfig {
+  return {
+    id: config.id,
+    name: config.name,
+    enabled: config.enabled,
+    kpis: [...config.kpis],
+    ratiosBenchmarks: { ...config.ratiosBenchmarks }
+  };
+}
+
+function createDefaultSectorConfigs(): SectorConfig[] {
+  return DEFAULT_SECTOR_CONFIGS.map(cloneSectorConfig);
+}
+
+function toFiniteNumber(value: unknown): number | null {
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return value;
+  }
+
+  if (typeof value === 'string' && value.trim() !== '') {
+    const parsed = Number(value);
+    if (Number.isFinite(parsed)) {
+      return parsed;
+    }
+  }
+
+  return null;
+}
+
+function parseJSON<T>(value: string | null, key: string): T | undefined {
+  if (!value) {
+    return undefined;
+  }
+
+  try {
+    return JSON.parse(value) as T;
+  } catch (error) {
+    console.warn(`Impossible de parser les paramètres sauvegardés pour ${key}`, error);
+    return undefined;
+  }
+}
+
+function sanitizeUserSettings(raw: unknown): UserSettings {
+  if (!raw || typeof raw !== 'object') {
+    return createDefaultUserSettings();
+  }
+
+  const candidate = raw as Partial<UserSettings>;
+
+  return {
+    name: typeof candidate.name === 'string' ? candidate.name : DEFAULT_USER_SETTINGS.name,
+    email: typeof candidate.email === 'string' ? candidate.email : DEFAULT_USER_SETTINGS.email,
+    company: typeof candidate.company === 'string' ? candidate.company : DEFAULT_USER_SETTINGS.company,
+    role: typeof candidate.role === 'string' ? candidate.role : DEFAULT_USER_SETTINGS.role,
+    sector: typeof candidate.sector === 'string' ? candidate.sector : DEFAULT_USER_SETTINGS.sector,
+    timezone: typeof candidate.timezone === 'string' ? candidate.timezone : DEFAULT_USER_SETTINGS.timezone,
+    language: typeof candidate.language === 'string' ? candidate.language : DEFAULT_USER_SETTINGS.language
+  };
+}
+
+function sanitizeSystemSettings(raw: unknown): SystemSettings {
+  if (!raw || typeof raw !== 'object') {
+    return createDefaultSystemSettings();
+  }
+
+  const candidate = raw as Partial<SystemSettings>;
+  const dataRetention = toFiniteNumber(candidate.dataRetention);
+  const securityLevel = SECURITY_LEVELS.includes(candidate.securityLevel as SystemSettings['securityLevel'])
+    ? (candidate.securityLevel as SystemSettings['securityLevel'])
+    : DEFAULT_SYSTEM_SETTINGS.securityLevel;
+
+  return {
+    autoSave: typeof candidate.autoSave === 'boolean' ? candidate.autoSave : DEFAULT_SYSTEM_SETTINGS.autoSave,
+    notifications: typeof candidate.notifications === 'boolean' ? candidate.notifications : DEFAULT_SYSTEM_SETTINGS.notifications,
+    emailReports: typeof candidate.emailReports === 'boolean' ? candidate.emailReports : DEFAULT_SYSTEM_SETTINGS.emailReports,
+    dataRetention: dataRetention !== null ? Math.max(1, Math.round(dataRetention)) : DEFAULT_SYSTEM_SETTINGS.dataRetention,
+    securityLevel,
+    maskSensitiveData: typeof candidate.maskSensitiveData === 'boolean'
+      ? candidate.maskSensitiveData
+      : DEFAULT_SYSTEM_SETTINGS.maskSensitiveData
+  };
+}
+
+function sanitizeSectorConfigs(raw: unknown): SectorConfig[] {
+  if (!Array.isArray(raw)) {
+    return createDefaultSectorConfigs();
+  }
+
+  const sanitized: SectorConfig[] = [];
+
+  raw.forEach(entry => {
+    if (!entry || typeof entry !== 'object') {
+      return;
+    }
+
+    const candidate = entry as Partial<SectorConfig>;
+    const id = typeof candidate.id === 'string' && candidate.id.trim() !== '' ? candidate.id : undefined;
+    const name = typeof candidate.name === 'string' && candidate.name.trim() !== '' ? candidate.name : undefined;
+
+    if (!id || !name) {
+      return;
+    }
+
+    const fallback = DEFAULT_SECTOR_CONFIGS.find(config => config.id === id);
+
+    const enabled = typeof candidate.enabled === 'boolean'
+      ? candidate.enabled
+      : fallback?.enabled ?? false;
+
+    let kpis: string[];
+    if (Array.isArray(candidate.kpis)) {
+      kpis = candidate.kpis
+        .filter(kpi => typeof kpi === 'string')
+        .map(kpi => kpi.trim())
+        .filter(kpi => kpi !== '');
+    } else if (fallback) {
+      kpis = [...fallback.kpis];
+    } else {
+      kpis = [];
+    }
+
+    let ratiosBenchmarks: Record<string, number> = {};
+    if (
+      candidate.ratiosBenchmarks &&
+      typeof candidate.ratiosBenchmarks === 'object' &&
+      !Array.isArray(candidate.ratiosBenchmarks)
+    ) {
+      Object.entries(candidate.ratiosBenchmarks).forEach(([key, value]) => {
+        const numeric = toFiniteNumber(value);
+        if (typeof key === 'string' && key.trim() !== '' && numeric !== null) {
+          ratiosBenchmarks[key] = numeric;
+        }
+      });
+    }
+
+    if (Object.keys(ratiosBenchmarks).length === 0) {
+      ratiosBenchmarks = fallback ? { ...fallback.ratiosBenchmarks } : {};
+    }
+
+    sanitized.push({
+      id,
+      name,
+      enabled,
+      kpis,
+      ratiosBenchmarks
+    });
+  });
+
+  return sanitized.length > 0 ? sanitized : createDefaultSectorConfigs();
+}
+
 export function SettingsPage({ onNavigate }: SettingsPageProps) {
   const { isDark, toggleTheme } = useTheme();
   const [activeTab, setActiveTab] = useState<'profile' | 'company' | 'security' | 'notifications' | 'sectors' | 'system'>('profile');
   const [showSuccess, setShowSuccess] = useState(false);
+  const [successMessage, setSuccessMessage] = useState<'saved' | 'reset'>('saved');
   const [showApiKey, setShowApiKey] = useState(false);
 
-  const [userSettings, setUserSettings] = useState<UserSettings>({
-    name: 'Jean Dupont',
-    email: 'jean.dupont@cabinet-expertise.fr',
-    company: 'Cabinet Expertise & Conseil',
-    role: 'Expert-Comptable',
-    sector: 'multi',
-    timezone: 'Europe/Paris',
-    language: 'fr'
-  });
+  const [userSettings, setUserSettings] = useState<UserSettings>(() => createDefaultUserSettings());
 
-  const [systemSettings, setSystemSettings] = useState<SystemSettings>({
-    autoSave: true,
-    notifications: true,
-    emailReports: false,
-    dataRetention: 36,
-    securityLevel: 'high',
-    maskSensitiveData: true
-  });
+  const [systemSettings, setSystemSettings] = useState<SystemSettings>(() => createDefaultSystemSettings());
 
-  const [sectorConfigs, setSectorConfigs] = useState<SectorConfig[]>([
-    {
-      id: 'btp',
-      name: 'BTP & Construction',
-      enabled: true,
-      kpis: ['Avancement', 'Retenues garantie', 'Sous-traitance'],
-      ratiosBenchmarks: { ebitdaMargin: 8.5, currentRatio: 1.2 }
-    },
-    {
-      id: 'retail',
-      name: 'Commerce & Distribution',
-      enabled: false,
-      kpis: ['Ticket moyen', 'Rotation stock', 'Prime cost'],
-      ratiosBenchmarks: { ebitdaMargin: 12.0, currentRatio: 1.5 }
-    },
-    {
-      id: 'saas',
-      name: 'SaaS & Tech',
-      enabled: false,
-      kpis: ['MRR', 'ARR', 'Churn rate', 'CAC/LTV'],
-      ratiosBenchmarks: { ebitdaMargin: 25.0, currentRatio: 2.0 }
-    }
-  ]);
+  const [sectorConfigs, setSectorConfigs] = useState<SectorConfig[]>(() => createDefaultSectorConfigs());
 
   const handleSave = () => {
-    // Save to localStorage
     safeSetItem('pegase_user_settings', JSON.stringify(userSettings));
     safeSetItem('pegase_system_settings', JSON.stringify(systemSettings));
     safeSetItem('pegase_sector_configs', JSON.stringify(sectorConfigs));
 
+    setSuccessMessage('saved');
     setShowSuccess(true);
     setTimeout(() => setShowSuccess(false), 3000);
   };
 
   const handleReset = () => {
     if (!isBrowserEnvironment()) {
+      console.warn('Réinitialisation des paramètres indisponible dans cet environnement');
       return;
     }
 
@@ -120,7 +289,14 @@ export function SettingsPage({ onNavigate }: SettingsPageProps) {
       safeRemoveItem('pegase_user_settings');
       safeRemoveItem('pegase_system_settings');
       safeRemoveItem('pegase_sector_configs');
-      window.location.reload();
+
+      setUserSettings(createDefaultUserSettings());
+      setSystemSettings(createDefaultSystemSettings());
+      setSectorConfigs(createDefaultSectorConfigs());
+
+      setSuccessMessage('reset');
+      setShowSuccess(true);
+      setTimeout(() => setShowSuccess(false), 3000);
     }
   };
 
@@ -155,12 +331,26 @@ export function SettingsPage({ onNavigate }: SettingsPageProps) {
     const reader = new FileReader();
     reader.onload = (e) => {
       try {
-        const settings = JSON.parse(e.target?.result as string);
-        if (settings.user) setUserSettings(settings.user);
-        if (settings.system) setSystemSettings(settings.system);
-        if (settings.sectors) setSectorConfigs(settings.sectors);
-        alert('Paramètres importés avec succès !');
+        const raw = e.target?.result;
+        if (typeof raw !== 'string') {
+          throw new Error('Format de fichier invalide');
+        }
+
+        const settings = JSON.parse(raw) as Partial<{ user: unknown; system: unknown; sectors: unknown }>;
+        if (settings.user !== undefined) {
+          setUserSettings(sanitizeUserSettings(settings.user));
+        }
+        if (settings.system !== undefined) {
+          setSystemSettings(sanitizeSystemSettings(settings.system));
+        }
+        if (settings.sectors !== undefined) {
+          setSectorConfigs(sanitizeSectorConfigs(settings.sectors));
+        }
+        setSuccessMessage('saved');
+        setShowSuccess(true);
+        setTimeout(() => setShowSuccess(false), 3000);
       } catch (error) {
+        console.warn('Erreur lors de l\'import des paramètres', error);
         alert('Erreur lors de l\'import des paramètres');
       }
     };
@@ -168,17 +358,18 @@ export function SettingsPage({ onNavigate }: SettingsPageProps) {
   };
 
   useEffect(() => {
-    // Load settings from localStorage on component mount
-    const savedUser = safeGetItem('pegase_user_settings');
-    const savedSystem = safeGetItem('pegase_system_settings');
-    const savedSectors = safeGetItem('pegase_sector_configs');
+    const savedUser = parseJSON<unknown>(safeGetItem('pegase_user_settings'), 'pegase_user_settings');
+    const savedSystem = parseJSON<unknown>(safeGetItem('pegase_system_settings'), 'pegase_system_settings');
+    const savedSectors = parseJSON<unknown>(safeGetItem('pegase_sector_configs'), 'pegase_sector_configs');
 
-    try {
-      if (savedUser) setUserSettings(JSON.parse(savedUser));
-      if (savedSystem) setSystemSettings(JSON.parse(savedSystem));
-      if (savedSectors) setSectorConfigs(JSON.parse(savedSectors));
-    } catch (error) {
-      console.warn('Impossible de charger les paramètres sauvegardés', error);
+    if (savedUser !== undefined) {
+      setUserSettings(sanitizeUserSettings(savedUser));
+    }
+    if (savedSystem !== undefined) {
+      setSystemSettings(sanitizeSystemSettings(savedSystem));
+    }
+    if (savedSectors !== undefined) {
+      setSectorConfigs(sanitizeSectorConfigs(savedSectors));
     }
   }, []);
 
@@ -207,7 +398,9 @@ export function SettingsPage({ onNavigate }: SettingsPageProps) {
           {showSuccess && (
             <div className="flex items-center space-x-2 bg-green-100 dark:bg-green-900/20 text-green-600 px-4 py-2 rounded-lg">
               <CheckCircle className="h-4 w-4" />
-              <span className="text-sm">Paramètres sauvegardés</span>
+              <span className="text-sm">
+                {successMessage === 'saved' ? 'Paramètres sauvegardés' : 'Paramètres réinitialisés'}
+              </span>
             </div>
           )}
           <button 
