@@ -19,6 +19,7 @@ import {
 } from 'lucide-react';
 import type { Page } from '../App';
 import { useTheme } from '../contexts/ThemeContext';
+import { isBrowserEnvironment, safeGetItem, safeRemoveItem, safeSetItem } from '../utils/storage';
 
 interface SettingsPageProps {
   onNavigate: (page: Page) => void;
@@ -102,24 +103,33 @@ export function SettingsPage({ onNavigate }: SettingsPageProps) {
 
   const handleSave = () => {
     // Save to localStorage
-    localStorage.setItem('pegase_user_settings', JSON.stringify(userSettings));
-    localStorage.setItem('pegase_system_settings', JSON.stringify(systemSettings));
-    localStorage.setItem('pegase_sector_configs', JSON.stringify(sectorConfigs));
-    
+    safeSetItem('pegase_user_settings', JSON.stringify(userSettings));
+    safeSetItem('pegase_system_settings', JSON.stringify(systemSettings));
+    safeSetItem('pegase_sector_configs', JSON.stringify(sectorConfigs));
+
     setShowSuccess(true);
     setTimeout(() => setShowSuccess(false), 3000);
   };
 
   const handleReset = () => {
-    if (confirm('Êtes-vous sûr de vouloir réinitialiser tous les paramètres ?')) {
-      localStorage.removeItem('pegase_user_settings');
-      localStorage.removeItem('pegase_system_settings');
-      localStorage.removeItem('pegase_sector_configs');
+    if (!isBrowserEnvironment()) {
+      return;
+    }
+
+    if (window.confirm('Êtes-vous sûr de vouloir réinitialiser tous les paramètres ?')) {
+      safeRemoveItem('pegase_user_settings');
+      safeRemoveItem('pegase_system_settings');
+      safeRemoveItem('pegase_sector_configs');
       window.location.reload();
     }
   };
 
   const handleExportSettings = () => {
+    if (!isBrowserEnvironment() || typeof document === 'undefined') {
+      console.warn('Export des paramètres indisponible dans cet environnement');
+      return;
+    }
+
     const settings = {
       user: userSettings,
       system: systemSettings,
@@ -159,13 +169,17 @@ export function SettingsPage({ onNavigate }: SettingsPageProps) {
 
   useEffect(() => {
     // Load settings from localStorage on component mount
-    const savedUser = localStorage.getItem('pegase_user_settings');
-    const savedSystem = localStorage.getItem('pegase_system_settings');
-    const savedSectors = localStorage.getItem('pegase_sector_configs');
+    const savedUser = safeGetItem('pegase_user_settings');
+    const savedSystem = safeGetItem('pegase_system_settings');
+    const savedSectors = safeGetItem('pegase_sector_configs');
 
-    if (savedUser) setUserSettings(JSON.parse(savedUser));
-    if (savedSystem) setSystemSettings(JSON.parse(savedSystem));
-    if (savedSectors) setSectorConfigs(JSON.parse(savedSectors));
+    try {
+      if (savedUser) setUserSettings(JSON.parse(savedUser));
+      if (savedSystem) setSystemSettings(JSON.parse(savedSystem));
+      if (savedSectors) setSectorConfigs(JSON.parse(savedSectors));
+    } catch (error) {
+      console.warn('Impossible de charger les paramètres sauvegardés', error);
+    }
   }, []);
 
   const tabs = [

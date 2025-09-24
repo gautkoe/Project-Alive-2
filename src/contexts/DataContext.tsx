@@ -1,4 +1,5 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
+import { safeGetItem, safeRemoveItem, safeSetItem } from '../utils/storage';
 
 interface FinancialData {
   revenue: { current: number; previous: number };
@@ -162,10 +163,10 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
 
   const saveData = () => {
     try {
-      localStorage.setItem('pegase_financial_data', JSON.stringify(financialData));
-      localStorage.setItem('pegase_qoe_adjustments', JSON.stringify(qoeAdjustments));
-      localStorage.setItem('pegase_imported_files', JSON.stringify(importedFiles));
-      localStorage.setItem('pegase_last_save', new Date().toISOString());
+      safeSetItem('pegase_financial_data', JSON.stringify(financialData));
+      safeSetItem('pegase_qoe_adjustments', JSON.stringify(qoeAdjustments));
+      safeSetItem('pegase_imported_files', JSON.stringify(importedFiles));
+      safeSetItem('pegase_last_save', new Date().toISOString());
     } catch (error) {
       console.error('Error saving data:', error);
     }
@@ -173,9 +174,9 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
 
   const loadData = () => {
     try {
-      const savedFinancialData = localStorage.getItem('pegase_financial_data');
-      const savedQoeAdjustments = localStorage.getItem('pegase_qoe_adjustments');
-      const savedImportedFiles = localStorage.getItem('pegase_imported_files');
+      const savedFinancialData = safeGetItem('pegase_financial_data');
+      const savedQoeAdjustments = safeGetItem('pegase_qoe_adjustments');
+      const savedImportedFiles = safeGetItem('pegase_imported_files');
 
       if (savedFinancialData) {
         setFinancialData(JSON.parse(savedFinancialData));
@@ -192,10 +193,10 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
   };
 
   const clearData = () => {
-    localStorage.removeItem('pegase_financial_data');
-    localStorage.removeItem('pegase_qoe_adjustments');
-    localStorage.removeItem('pegase_imported_files');
-    localStorage.removeItem('pegase_last_save');
+    safeRemoveItem('pegase_financial_data');
+    safeRemoveItem('pegase_qoe_adjustments');
+    safeRemoveItem('pegase_imported_files');
+    safeRemoveItem('pegase_last_save');
     
     // Reset to default values
     setFinancialData({
